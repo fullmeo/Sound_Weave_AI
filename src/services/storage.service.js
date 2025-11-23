@@ -1,4 +1,5 @@
 import fs from 'fs/promises';
+import { createWriteStream } from 'fs';
 import path from 'path';
 import axios from 'axios';
 import pino from 'pino';
@@ -19,6 +20,9 @@ export class StorageService {
       config.storage.generationsDir
     );
     this.metadataFile = path.join(this.basePath, config.storage.metadataFile);
+    this.metadataCache = null;
+    this.cacheTimestamp = null;
+    this.cacheTTL = 30000; // 30 seconds cache
     this.init();
   }
 
@@ -66,6 +70,9 @@ export class StorageService {
         JSON.stringify(metadata, null, 2)
       );
 
+      // Invalidate cache after write
+      this.invalidateCache();
+
       logger.debug({ generationId: generation.id }, 'Metadata saved');
     } catch (error) {
       logger.error(
@@ -77,16 +84,43 @@ export class StorageService {
   }
 
   /**
-   * Load all metadata
+   * Load all metadata (with caching)
    */
   async loadMetadata() {
     try {
+      // Check cache validity
+      const now = Date.now();
+      if (
+        this.metadataCache &&
+        this.cacheTimestamp &&
+        now - this.cacheTimestamp < this.cacheTTL
+      ) {
+        logger.debug('Returning cached metadata');
+        return this.metadataCache;
+      }
+
+      // Load fresh data
       const data = await fs.readFile(this.metadataFile, 'utf-8');
-      return JSON.parse(data);
+      const metadata = JSON.parse(data);
+
+      // Update cache
+      this.metadataCache = metadata;
+      this.cacheTimestamp = now;
+
+      return metadata;
     } catch (error) {
       logger.error({ error: error.message }, 'Failed to load metadata');
       return [];
     }
+  }
+
+  /**
+   * Invalidate metadata cache
+   */
+  invalidateCache() {
+    this.metadataCache = null;
+    this.cacheTimestamp = null;
+    logger.debug('Metadata cache invalidated');
   }
 
   /**
@@ -134,11 +168,15 @@ export class StorageService {
         );
       }
 
-      // Write to file
+      // Write to file with proper stream handling
       await new Promise((resolve, reject) => {
-        response.data.pipe(fs.createWriteStream(filePath))
+        const writeStream = createWriteStream(filePath);
+        response.data.pipe(writeStream)
           .on('finish', resolve)
           .on('error', reject);
+
+        // Handle stream errors
+        writeStream.on('error', reject);
       });
 
       const fileStats = await fs.stat(filePath);
@@ -164,10 +202,22 @@ export class StorageService {
   }
 
   /**
-   * Get audio file path
+   * Get audio file path (with path traversal protection)
    */
   getAudioPath(generationId) {
-    return path.join(this.generationsDir, `${generationId}.wav`);
+    // Sanitize ID to prevent path traversal
+    const sanitizedId = generationId.replace(/[^a-zA-Z0-9-_]/g, '');
+    const filePath = path.join(this.generationsDir, `${sanitizedId}.wav`);
+
+    // Verify the resolved path is still within generationsDir
+    const normalizedPath = path.normalize(filePath);
+    const normalizedDir = path.normalize(this.generationsDir);
+
+    if (!normalizedPath.startsWith(normalizedDir)) {
+      throw new Error('Invalid generation ID: path traversal detected');
+    }
+
+    return filePath;
   }
 
   /**
@@ -204,6 +254,9 @@ export class StorageService {
         this.metadataFile,
         JSON.stringify(filtered, null, 2)
       );
+
+      // Invalidate cache after delete
+      this.invalidateCache();
 
       logger.info({ generationId }, 'Generation deleted successfully');
     } catch (error) {

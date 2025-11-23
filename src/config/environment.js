@@ -71,27 +71,91 @@ const config = {
 // Validation
 function validateConfig() {
   const errors = [];
+  const warnings = [];
 
-  if (!config.replicate.apiToken && config.env === 'production') {
-    errors.push('REPLICATE_API_TOKEN is required in production');
+  // Critical: API token validation
+  if (!config.replicate.apiToken) {
+    if (config.env === 'production') {
+      errors.push('REPLICATE_API_TOKEN is required in production');
+    } else {
+      warnings.push(
+        'REPLICATE_API_TOKEN not set - music generation will fail. Get one at https://replicate.com/account'
+      );
+    }
   }
 
+  // Validate token format (should start with r8_)
+  if (config.replicate.apiToken && !config.replicate.apiToken.startsWith('r8_')) {
+    warnings.push(
+      'REPLICATE_API_TOKEN format looks invalid - should start with "r8_"'
+    );
+  }
+
+  // Generation constraints
   if (config.generation.maxDuration > 30) {
-    errors.push('MAX_GENERATION_DURATION cannot exceed 30 seconds');
+    errors.push('MAX_GENERATION_DURATION cannot exceed 30 seconds (Replicate limit)');
+  }
+
+  if (config.generation.minDuration < 1) {
+    errors.push('MIN_GENERATION_DURATION must be at least 1 second');
   }
 
   if (config.generation.minPromptLength < 5) {
-    errors.push('MIN_PROMPT_LENGTH should be at least 5 characters');
+    warnings.push('MIN_PROMPT_LENGTH < 5 characters may produce poor results');
   }
 
+  if (config.generation.maxPromptLength > 1000) {
+    warnings.push('MAX_PROMPT_LENGTH > 1000 may be truncated by the model');
+  }
+
+  // Rate limiting
   if (config.rateLimit.maxRequests < 1) {
     errors.push('RATE_LIMIT_MAX_REQUESTS must be at least 1');
   }
 
+  if (config.rateLimit.maxRequests > 100) {
+    warnings.push(
+      'RATE_LIMIT_MAX_REQUESTS > 100 may overwhelm the Replicate API'
+    );
+  }
+
+  // Port validation
+  if (config.port < 1024 && process.platform !== 'win32' && process.getuid && process.getuid() !== 0) {
+    warnings.push(
+      `PORT ${config.port} < 1024 requires root privileges on Unix systems`
+    );
+  }
+
+  // CORS validation
+  if (config.env === 'production' && config.cors.origin === 'http://localhost:3000') {
+    warnings.push(
+      'CORS_ORIGIN still set to localhost in production - update to your domain'
+    );
+  }
+
+  // Storage validation
+  if (config.storage.maxFileSize < 1024 * 1024) {
+    warnings.push('MAX_FILE_SIZE < 1MB may be too small for audio files');
+  }
+
+  // Display warnings
+  if (warnings.length > 0) {
+    console.warn('\n⚠️  Configuration Warnings:');
+    warnings.forEach(warn => console.warn(`  - ${warn}`));
+    console.warn('');
+  }
+
+  // Display errors and exit if any
   if (errors.length > 0) {
-    console.error('Configuration Errors:');
+    console.error('\n❌ Configuration Errors:');
     errors.forEach(err => console.error(`  - ${err}`));
+    console.error('');
     process.exit(1);
+  }
+
+  // Success message
+  if (warnings.length === 0) {
+    console.log('✅ Configuration validated successfully\n');
   }
 }
 
