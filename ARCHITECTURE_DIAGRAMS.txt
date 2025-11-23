@@ -1,0 +1,374 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                    MUSICGEN WRAPPER - ARCHITECTURE                           ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                          SYSTEM ARCHITECTURE FLOW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                      CLIENT LAYER                               │
+    ├─────────────────────────────────────────────────────────────────┤
+    │                                                                   │
+    │  REST API                              CLI                       │
+    │  ┌──────────────────┐           ┌──────────────────┐           │
+    │  │ POST /generate   │           │ musicgen-cli.js  │           │
+    │  │ GET /list        │           │ generate cmd     │           │
+    │  │ GET /:id         │           │ list cmd         │           │
+    │  │ DELETE /:id      │           │ get cmd          │           │
+    │  │ GET /download    │           │ delete cmd       │           │
+    │  │ GET /models      │           │ stats cmd        │           │
+    │  │ POST /health     │           │ models cmd       │           │
+    │  └──────────────────┘           └──────────────────┘           │
+    │                                                                   │
+    └──────────────────────────────┬──────────────────────────────────┘
+                                   │
+    ┌──────────────────────────────▼──────────────────────────────────┐
+    │                      MIDDLEWARE LAYER                            │
+    ├─────────────────────────────────────────────────────────────────┤
+    │                                                                   │
+    │  Rate Limiting                    CORS                           │
+    │  ┌──────────────────┐        ┌──────────────────┐              │
+    │  │ 10 req/min       │        │ localhost:3000   │              │
+    │  │ Exponential back │        │ Content-Type     │              │
+    │  └──────────────────┘        └──────────────────┘              │
+    │                                                                   │
+    │  Validation                       Error Handler                 │
+    │  ┌──────────────────┐        ┌──────────────────┐              │
+    │  │ Input checking   │        │ Structured JSON  │              │
+    │  │ Schema validation│        │ Error codes      │              │
+    │  └──────────────────┘        └──────────────────┘              │
+    │                                                                   │
+    └──────────────────────────────┬──────────────────────────────────┘
+                                   │
+    ┌──────────────────────────────▼──────────────────────────────────┐
+    │                    APPLICATION LAYER                             │
+    ├─────────────────────────────────────────────────────────────────┤
+    │                                                                   │
+    │   ┌──────────────────────────────────────────────────────────┐  │
+    │   │              MusicGen Service                            │  │
+    │   ├──────────────────────────────────────────────────────────┤  │
+    │   │ ✓ validate()                                             │  │
+    │   │ ✓ generate()                                             │  │
+    │   │ ✓ createPrediction()                                     │  │
+    │   │ ✓ pollPrediction() [exponential backoff]                │  │
+    │   │ ✓ getModelInfo()                                         │  │
+    │   │                                                            │  │
+    │   │ Handles:                                                  │  │
+    │   │ • Prompt validation (10-500 chars)                        │  │
+    │   │ • Duration constraints (5-30 sec)                         │  │
+    │   │ • Model selection (small/medium/large)                    │  │
+    │   │ • Replicate API integration                               │  │
+    │   │ • Retry logic with exponential backoff                    │  │
+    │   │ • 120s timeout per generation                             │  │
+    │   └──────────────────────────────────────────────────────────┘  │
+    │                                    │                              │
+    │   ┌──────────────────────────────▼──────────────────────────┐  │
+    │   │              Storage Service                            │  │
+    │   ├──────────────────────────────────────────────────────────┤  │
+    │   │ ✓ downloadAudio()                                        │  │
+    │   │ ✓ saveMetadata()                                         │  │
+    │   │ ✓ loadMetadata()                                         │  │
+    │   │ ✓ getMetadata(id)                                        │  │
+    │   │ ✓ list(options)                                          │  │
+    │   │ ✓ delete(id)                                             │  │
+    │   │ ✓ getStats()                                             │  │
+    │   │                                                            │  │
+    │   │ Handles:                                                  │  │
+    │   │ • WAV file downloads                                      │  │
+    │   │ • JSON metadata persistence                               │  │
+    │   │ • File system management                                  │  │
+    │   │ • Pagination & filtering                                  │  │
+    │   │ • Storage statistics                                      │  │
+    │   └──────────────────────────────────────────────────────────┘  │
+    │                                                                   │
+    │   ┌──────────────────────────────────────────────────────────┐  │
+    │   │         Validation & Error Utilities                     │  │
+    │   ├──────────────────────────────────────────────────────────┤  │
+    │   │ • validateGenerationInput()                               │  │
+    │   │ • createErrorResponse()                                   │  │
+    │   │ • createSuccessResponse()                                 │  │
+    │   │ • sanitizeForLog()                                        │  │
+    │   └──────────────────────────────────────────────────────────┘  │
+    │                                                                   │
+    └──────────────────────────────┬──────────────────────────────────┘
+                                   │
+    ┌──────────────────────────────▼──────────────────────────────────┐
+    │                    EXTERNAL SERVICES                             │
+    ├─────────────────────────────────────────────────────────────────┤
+    │                                                                   │
+    │   ┌──────────────────┐         ┌──────────────────┐            │
+    │   │ Replicate API    │         │ Local File Sys   │            │
+    │   ├──────────────────┤         ├──────────────────┤            │
+    │   │ • Predictions    │         │ • /data/         │            │
+    │   │ • Polling        │         │   generations/   │            │
+    │   │ • Audio download │         │   *.wav          │            │
+    │   │ • Error handling │         │ • metadata.json  │            │
+    │   └──────────────────┘         └──────────────────┘            │
+    │                                                                   │
+    └─────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                        REQUEST FLOW SEQUENCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+USER REQUEST
+    │
+    │  POST /api/generate
+    │  { prompt, duration, model }
+    │
+    ▼
+VALIDATE INPUT
+    │
+    ├─ Prompt: 10-500 chars ✓
+    ├─ Duration: 5-30 seconds ✓
+    ├─ Model: [small|medium|large] ✓
+    │
+    └─ ✓ Valid
+    │
+    ▼
+CREATE PREDICTION (Replicate API)
+    │
+    │  POST https://api.replicate.com/v1/predictions
+    │  { version, input: {prompt, duration} }
+    │
+    ▼
+POLL FOR COMPLETION
+    │
+    ├─ Status: processing → exponential backoff
+    ├─ Check every 1s, 1.5s, 2.25s, etc (max 10s)
+    ├─ Max wait: 5 minutes
+    ├─ Max attempts: 120
+    │
+    └─ Status: succeeded ✓
+    │
+    ▼
+DOWNLOAD AUDIO FILE
+    │
+    │  GET audioUrl
+    │  Stream → /data/generations/{id}.wav
+    │  Max size: 50MB
+    │
+    ▼
+SAVE METADATA
+    │
+    │  Update /data/metadata.json
+    │  {
+    │    "id": "...",
+    │    "prompt": "...",
+    │    "status": "completed",
+    │    "localFile": "{id}.wav",
+    │    "createdAt": "..."
+    │  }
+    │
+    ▼
+RETURN RESPONSE
+    │
+    │  {
+    │    "success": true,
+    │    "data": {
+    │      "id": "...",
+    │      "status": "completed",
+    │      "prompt": "...",
+    │      "audioUrl": "...",
+    │      "createdAt": "..."
+    │    }
+    │  }
+    │
+    ▼
+USER RECEIVES RESPONSE
+    │
+    ├─ Via API: JSON response
+    └─ Via CLI: Colored output + audio saved
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                          ERROR HANDLING FLOW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ERROR DETECTED
+    │
+    ├─ VALIDATION_ERROR (400)
+    │  └─ Invalid prompt/duration/model
+    │
+    ├─ AUTH_ERROR (401)
+    │  └─ Invalid Replicate API token
+    │
+    ├─ RATE_LIMIT_ERROR (429)
+    │  └─ Replicate quota exceeded
+    │
+    ├─ TIMEOUT_ERROR (504)
+    │  └─ Generation took > 5 minutes
+    │
+    ├─ NOT_FOUND (404)
+    │  └─ Generation ID doesn't exist
+    │
+    └─ GENERATION_ERROR (500)
+       └─ Replicate prediction failed
+    │
+    ▼
+LOG ERROR
+    │
+    ├─ Error code
+    ├─ Error message
+    ├─ Request details
+    └─ Timestamp
+    │
+    ▼
+CREATE ERROR RESPONSE
+    │
+    │  {
+    │    "success": false,
+    │    "error": {
+    │      "code": "ERROR_CODE",
+    │      "message": "Human-readable message",
+    │      "details": ["additional info"]
+    │    }
+    │  }
+    │
+    ▼
+RETURN WITH APPROPRIATE HTTP STATUS
+    │
+    └─ Client handles error gracefully
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                           DATA STORAGE SCHEMA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/data/
+├── generations/
+│   ├── 550e8400-e29b-41d4-a716-446655440000.wav  (audio file, 2-3MB)
+│   ├── 650e8400-e29b-41d4-a716-446655440001.wav
+│   └── ... (more audio files)
+│
+└── metadata.json  (index file, <1KB)
+    [
+      {
+        "id": "550e8400-e29b-41d4-a716-446655440000",
+        "status": "completed",
+        "prompt": "uplifting orchestral music with strings",
+        "duration": 15,
+        "model": "large",
+        "audioUrl": "https://replicate.com/...",
+        "replicateId": "...",
+        "localFile": "550e8400-e29b-41d4-a716-446655440000.wav",
+        "createdAt": "2024-01-15T10:30:00.000Z",
+        "downloadedAt": "2024-01-15T10:32:15.000Z",
+        "metadata": {
+          "promptLength": 50,
+          "modelVariant": "large",
+          "inputTokens": 13
+        }
+      },
+      ...
+    ]
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                      INTEGRATION PATTERNS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PATTERN A: UT QUEANT LAXIS (Vocal Analysis)
+────────────────────────────────────────────
+
+Vocal Audio File
+    │
+    ▼
+ANALYZE (Ut Queant Laxis)
+    │
+    ├─ Extract: pitch, tempo, timbre, energy
+    ├─ Generate description: "ambient electronic 70bpm warm pads"
+    │
+    ▼
+GENERATE MUSIC (MusicGen Wrapper)
+    │
+    ├─ POST /generate { prompt }
+    │
+    ▼
+DOWNLOAD & INTEGRATE
+    │
+    ├─ Audio saved locally
+    ├─ Aligned with vocal timing
+    │
+    ▼
+OUTPUT: Combined vocal + generated music
+
+
+PATTERN B: NEURALMIX (DJ Platform)
+──────────────────────────────────
+
+Desired BPM: 120
+Music Style: Electronic + Ambient
+    │
+    ▼
+BATCH GENERATE (Multiple prompts)
+    │
+    ├─ "Upbeat electronic 120bpm driving bass"
+    ├─ "Chill ambient 120bpm warm pads"
+    ├─ "Groovy house 120bpm synth lead"
+    │
+    ▼
+DOWNLOAD ALL TRACKS
+    │
+    │
+    ▼
+BLEND IN NEURALMIX
+    │
+    ├─ Mix compatible tracks
+    ├─ Sync to timeline
+    │
+    ▼
+OUTPUT: DJ Mix
+
+
+PATTERN C: BUTTERFILES (AI File Management)
+───────────────────────────────────────────
+
+Generated Music Files
+    │
+    ▼
+LOAD METADATA
+    │
+    ├─ Get all generations
+    ├─ Extract metadata
+    │
+    ▼
+CATEGORIZE
+    │
+    ├─ Tag: "generated", "musicgen"
+    ├─ Group by: tempo, style, duration
+    ├─ Create playlists
+    │
+    ▼
+OUTPUT: Organized music library
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                          PERFORMANCE METRICS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GENERATION TIME (Replicate)
+  Small model:    30-45 seconds
+  Medium model:   45-60 seconds
+  Large model:    60-90 seconds
+
+STORAGE PER GENERATION
+  Audio file:     ~2-3MB (10 seconds)
+  Metadata:       ~1KB
+  Total per gen:  ~2-3MB
+
+API RESPONSE TIMES
+  Validation:     <10ms
+  List/Filter:    <100ms
+  Download:       Network dependent
+  Health check:   <5ms
+
+CONCURRENT LIMITS
+  Replicate API:  Check account limits
+  Rate limit:     10 requests/minute (configurable)
+  Storage:        Disk capacity
+  Memory:         Node.js standard
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

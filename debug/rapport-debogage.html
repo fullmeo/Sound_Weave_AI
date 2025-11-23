@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rapport de Débogage - MusicGen Wrapper</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            color: #667eea;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 1.2em;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            text-align: center;
+            transition: transform 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .stat-number {
+            font-size: 3em;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .stat-number.critical {
+            color: #e74c3c;
+        }
+
+        .stat-number.warning {
+            color: #f39c12;
+        }
+
+        .stat-number.success {
+            color: #27ae60;
+        }
+
+        .stat-label {
+            color: #666;
+            font-size: 1.1em;
+        }
+
+        .bug-card {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            border-left: 5px solid #e74c3c;
+        }
+
+        .bug-card.warning {
+            border-left-color: #f39c12;
+        }
+
+        .bug-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .bug-icon {
+            font-size: 2em;
+            margin-right: 15px;
+        }
+
+        .bug-title {
+            flex: 1;
+        }
+
+        .bug-title h2 {
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .bug-location {
+            color: #666;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+
+        .code-block {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 15px 0;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+
+        .code-label {
+            color: #999;
+            font-size: 0.9em;
+            margin-bottom: 10px;
+        }
+
+        .code-error {
+            background: #3a1f1f;
+            border-left: 3px solid #e74c3c;
+        }
+
+        .code-success {
+            background: #1f3a1f;
+            border-left: 3px solid #27ae60;
+        }
+
+        .impact {
+            background: #fff3cd;
+            border-left: 4px solid #f39c12;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+        }
+
+        .impact strong {
+            color: #856404;
+        }
+
+        .checklist {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            margin-top: 30px;
+        }
+
+        .checklist h2 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+
+        .checklist-item {
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            align-items: center;
+        }
+
+        .checklist-item:last-child {
+            border-bottom: none;
+        }
+
+        .checkbox {
+            width: 24px;
+            height: 24px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            margin-right: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .checkbox:hover {
+            border-color: #667eea;
+        }
+
+        .checkbox.checked {
+            background: #27ae60;
+            border-color: #27ae60;
+        }
+
+        .checkbox.checked::after {
+            content: '✓';
+            color: white;
+            font-weight: bold;
+        }
+
+        .recommendations {
+            background: #e8f4f8;
+            border-left: 4px solid #3498db;
+            padding: 20px;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+
+        .recommendations h3 {
+            color: #2980b9;
+            margin-bottom: 15px;
+        }
+
+        .recommendations ul {
+            margin-left: 20px;
+        }
+
+        .recommendations li {
+            margin: 10px 0;
+            color: #34495e;
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 1.8em;
+            }
+            
+            .stats {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔧 Rapport de Débogage</h1>
+            <p>MusicGen Wrapper - Analyse Complète</p>
+        </div>
+
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-number critical">3</div>
+                <div class="stat-label">Bugs Critiques</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number warning">2</div>
+                <div class="stat-label">Fichiers à Corriger</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number success">✓</div>
+                <div class="stat-label">Architecture Solide</div>
+            </div>
+        </div>
+
+        <div class="bug-card">
+            <div class="bug-header">
+                <div class="bug-icon">🐛</div>
+                <div class="bug-title">
+                    <h2>Bug #1: Erreur de Syntaxe</h2>
+                    <div class="bug-location">📄 routes.js - Ligne 183</div>
+                </div>
+            </div>
+
+            <div class="code-label">❌ Code Erroné:</div>
+            <div class="code-block code-error">res.download(filePath, `musicgen-${id}.wav', (err) => {</div>
+
+            <div class="code-label">✅ Code Corrigé:</div>
+            <div class="code-block code-success">res.download(filePath, `musicgen-${id}.wav`, (err) => {</div>
+
+            <div class="impact">
+                <strong>Impact:</strong> Erreur de syntaxe qui empêche le serveur de démarrer. Le mélange de guillemets simples et backticks provoque une erreur de parsing JavaScript.
+            </div>
+        </div>
+
+        <div class="bug-card">
+            <div class="bug-header">
+                <div class="bug-icon">📦</div>
+                <div class="bug-title">
+                    <h2>Bug #2: Import Manquant</h2>
+                    <div class="bug-location">📄 routes.js - Ligne 6</div>
+                </div>
+            </div>
+
+            <div class="code-label">❌ Code Erroné:</div>
+            <div class="code-block code-error">import { createErrorResponse } from '../utils/errors.js';</div>
+
+            <div class="code-label">✅ Code Corrigé:</div>
+            <div class="code-block code-success">import { validateGenerationInput, createErrorResponse } from '../utils/validation.js';</div>
+
+            <div class="impact">
+                <strong>Impact:</strong> Le fichier errors.js n'existe pas. La fonction createErrorResponse est déjà disponible dans validation.js. Sans cette correction, l'application ne peut pas démarrer.
+            </div>
+        </div>
+
+        <div class="bug-card warning">
+            <div class="bug-header">
+                <div class="bug-icon">⚠️</div>
+                <div class="bug-title">
+                    <h2>Bug #3: Structure des Dossiers</h2>
+                    <div class="bug-location">📁 Organisation du Projet</div>
+                </div>
+            </div>
+
+            <div class="code-label">Structure Attendue:</div>
+            <div class="code-block">
+musicgen-wrapper/
+├── src/
+│   ├── api/
+│   │   └── routes.js
+│   ├── services/
+│   │   ├── musicgen.service.js
+│   │   └── storage.service.js
+│   ├── utils/
+│   │   └── validation.js
+│   ├── config/
+│   │   └── environment.js
+│   └── index.js
+├── cli/
+│   └── musicgen-cli.js
+└── package.json
+            </div>
+
+            <div class="impact">
+                <strong>Impact:</strong> Les fichiers sont dispersés à la racine alors que le projet est structuré pour une architecture modulaire. Les imports relatifs ne fonctionneront pas correctement.
+            </div>
+        </div>
+
+        <div class="checklist">
+            <h2>📋 Checklist de Correction</h2>
+            <div class="checklist-item">
+                <div class="checkbox" onclick="this.classList.toggle('checked')"></div>
+                <div>Corriger le guillemet manquant (ligne 183 de routes.js)</div>
+            </div>
+            <div class="checklist-item">
+                <div class="checkbox" onclick="this.classList.toggle('checked')"></div>
+                <div>Corriger l'import dans routes.js (ligne 6)</div>
+            </div>
+            <div class="checklist-item">
+                <div class="checkbox" onclick="this.classList.toggle('checked')"></div>
+                <div>Réorganiser la structure des dossiers</div>
+            </div>
+            <div class="checklist-item">
+                <div class="checkbox" onclick="this.classList.toggle('checked')"></div>
+                <div>Créer le fichier .env avec REPLICATE_API_TOKEN</div>
+            </div>
+            <div class="checklist-item">
+                <div class="checkbox" onclick="this.classList.toggle('checked')"></div>
+                <div>Installer les dépendances (npm install)</div>
+            </div>
+            <div class="checklist-item">
+                <div class="checkbox" onclick="this.classList.toggle('checked')"></div>
+                <div>Tester le démarrage du serveur (npm start)</div>
+            </div>
+        </div>
+
+        <div class="recommendations">
+            <h3>💡 Recommandations</h3>
+            <ul>
+                <li><strong>Utilisez le script de correction automatique</strong> fourni (fix-bugs.sh) pour appliquer toutes les corrections en une fois</li>
+                <li><strong>Vérifiez votre token Replicate</strong> avant de lancer l'application</li>
+                <li><strong>Testez l'endpoint de santé</strong> après démarrage: <code>curl -X POST http://localhost:3000/api/health</code></li>
+                <li><strong>Activez les logs en mode debug</strong> pendant les tests: <code>LOG_LEVEL=debug npm start</code></li>
+                <li><strong>Consultez le README.md</strong> pour les exemples d'utilisation de l'API</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>
