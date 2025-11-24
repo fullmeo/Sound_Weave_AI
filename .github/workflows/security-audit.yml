@@ -1,0 +1,141 @@
+name: Security Audit
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Run security audit weekly on Monday at 9 AM UTC
+    - cron: '0 9 * * 1'
+
+jobs:
+  npm-audit:
+    name: npm Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit
+        run: npm audit --audit-level=high
+        continue-on-error: true
+
+      - name: Generate audit report
+        run: npm audit --json > npm-audit-report.json || true
+
+      - name: Upload audit report
+        uses: actions/upload-artifact@v3
+        with:
+          name: npm-audit-report
+          path: npm-audit-report.json
+        if: always()
+
+  secret-scan:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run secret scan
+        run: |
+          echo "🔍 Scanning for exposed secrets..."
+
+          # Check for common secret patterns
+          if grep -r "REPLICATE_API_TOKEN=r8_" . --exclude-dir={node_modules,.git} 2>/dev/null; then
+            echo "❌ ERROR: Exposed API token found!"
+            exit 1
+          fi
+
+          # Check for .env files in git
+          if git ls-files | grep -E "\.env$" 2>/dev/null; then
+            echo "❌ ERROR: .env file committed to git!"
+            exit 1
+          fi
+
+          echo "✅ No exposed secrets detected"
+
+  code-security:
+    name: Code Security Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Security check - Path traversal
+        run: |
+          echo "🔍 Checking for path traversal vulnerabilities..."
+
+          # Verify path traversal protection is in place
+          if grep -r "path.normalize" src/services/storage.service.js; then
+            echo "✅ Path normalization found"
+          else
+            echo "⚠️ WARNING: Path normalization not found"
+          fi
+
+          if grep -r "startsWith.*Dir" src/services/storage.service.js; then
+            echo "✅ Directory boundary check found"
+          else
+            echo "⚠️ WARNING: Directory boundary check not found"
+          fi
+
+      - name: Security check - Input validation
+        run: |
+          echo "🔍 Checking input validation..."
+
+          if grep -r "Joi\." src/utils/validation.js; then
+            echo "✅ Joi validation found"
+          else
+            echo "⚠️ WARNING: Joi validation not found"
+          fi
+
+      - name: Security check - Environment variables
+        run: |
+          echo "🔍 Checking environment variable handling..."
+
+          # Check that API tokens are not hardcoded
+          if grep -r "r8_[a-zA-Z0-9]" src --exclude="*.md" 2>/dev/null; then
+            echo "❌ ERROR: Hardcoded API token found!"
+            exit 1
+          fi
+
+          echo "✅ No hardcoded tokens found"
+
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v3
+        with:
+          fail-on-severity: moderate
+          deny-licenses: GPL-3.0, AGPL-3.0
