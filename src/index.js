@@ -6,6 +6,8 @@ import pino from 'pino';
 import pinoHttp from 'pino-http';
 import config from './config/environment.js';
 import apiRoutes, { initializeServices } from './api/routes.js';
+import { requestIdMiddleware } from './middleware/requestId.js';
+import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 
 const app = express();
 const logger = pino({
@@ -15,8 +17,16 @@ const logger = pino({
     : undefined,
 });
 
-// Logging middleware
-app.use(pinoHttp({ logger }));
+// Request ID middleware (MUST be first)
+app.use(requestIdMiddleware);
+
+// Logging middleware (includes request ID)
+app.use(pinoHttp({
+  logger,
+  customProps: (req) => ({
+    requestId: req.id,
+  }),
+}));
 
 // Security middleware
 app.use(helmet());
@@ -54,31 +64,11 @@ initializeServices();
 // API Routes
 app.use('/api', apiRoutes);
 
-// 404 Handler
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    error: {
-      code: 'NOT_FOUND',
-      message: `Route ${req.method} ${req.path} not found`,
-    },
-  });
-});
+// 404 Handler (must be after all routes)
+app.use(notFoundHandler);
 
-// Error Handler
-app.use((err, req, res, next) => {
-  logger.error({ error: err, path: req.path }, 'Unhandled error');
-
-  res.status(err.statusCode || 500).json({
-    success: false,
-    error: {
-      code: 'INTERNAL_ERROR',
-      message: config.env === 'production'
-        ? 'Internal server error'
-        : err.message,
-    },
-  });
-});
+// Centralized Error Handler (must be last)
+app.use(errorHandler);
 
 // Start server
 const PORT = config.port;

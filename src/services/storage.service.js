@@ -4,6 +4,7 @@ import path from 'path';
 import axios from 'axios';
 import pino from 'pino';
 import config from '../config/environment.js';
+import { globalMutex } from '../utils/mutex.js';
 
 const logger = pino({
   level: config.logging.level,
@@ -55,32 +56,34 @@ export class StorageService {
    * Save generation metadata
    */
   async saveMetadata(generation) {
-    try {
-      const metadata = await this.loadMetadata();
-      const existingIndex = metadata.findIndex(m => m.id === generation.id);
+    return await globalMutex.acquire('metadata-write', async () => {
+      try {
+        const metadata = await this.loadMetadata();
+        const existingIndex = metadata.findIndex(m => m.id === generation.id);
 
-      if (existingIndex >= 0) {
-        metadata[existingIndex] = { ...metadata[existingIndex], ...generation };
-      } else {
-        metadata.push(generation);
+        if (existingIndex >= 0) {
+          metadata[existingIndex] = { ...metadata[existingIndex], ...generation };
+        } else {
+          metadata.push(generation);
+        }
+
+        await fs.writeFile(
+          this.metadataFile,
+          JSON.stringify(metadata, null, 2)
+        );
+
+        // Invalidate cache after write
+        this.invalidateCache();
+
+        logger.debug({ generationId: generation.id }, 'Metadata saved');
+      } catch (error) {
+        logger.error(
+          { error: error.message, generationId: generation.id },
+          'Failed to save metadata'
+        );
+        throw error;
       }
-
-      await fs.writeFile(
-        this.metadataFile,
-        JSON.stringify(metadata, null, 2)
-      );
-
-      // Invalidate cache after write
-      this.invalidateCache();
-
-      logger.debug({ generationId: generation.id }, 'Metadata saved');
-    } catch (error) {
-      logger.error(
-        { error: error.message, generationId: generation.id },
-        'Failed to save metadata'
-      );
-      throw error;
-    }
+    });
   }
 
   /**
@@ -237,35 +240,37 @@ export class StorageService {
    * Delete generation (metadata + audio file)
    */
   async delete(generationId) {
-    try {
-      // Delete audio file
-      const filePath = this.getAudioPath(generationId);
+    return await globalMutex.acquire('metadata-write', async () => {
       try {
-        await fs.unlink(filePath);
-        logger.debug({ generationId }, 'Audio file deleted');
-      } catch {
-        // File might not exist, continue
+        // Delete audio file
+        const filePath = this.getAudioPath(generationId);
+        try {
+          await fs.unlink(filePath);
+          logger.debug({ generationId }, 'Audio file deleted');
+        } catch {
+          // File might not exist, continue
+        }
+
+        // Delete from metadata
+        const metadata = await this.loadMetadata();
+        const filtered = metadata.filter(m => m.id !== generationId);
+        await fs.writeFile(
+          this.metadataFile,
+          JSON.stringify(filtered, null, 2)
+        );
+
+        // Invalidate cache after delete
+        this.invalidateCache();
+
+        logger.info({ generationId }, 'Generation deleted successfully');
+      } catch (error) {
+        logger.error(
+          { error: error.message, generationId },
+          'Failed to delete generation'
+        );
+        throw error;
       }
-
-      // Delete from metadata
-      const metadata = await this.loadMetadata();
-      const filtered = metadata.filter(m => m.id !== generationId);
-      await fs.writeFile(
-        this.metadataFile,
-        JSON.stringify(filtered, null, 2)
-      );
-
-      // Invalidate cache after delete
-      this.invalidateCache();
-
-      logger.info({ generationId }, 'Generation deleted successfully');
-    } catch (error) {
-      logger.error(
-        { error: error.message, generationId },
-        'Failed to delete generation'
-      );
-      throw error;
-    }
+    });
   }
 
   /**
